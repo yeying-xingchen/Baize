@@ -1,7 +1,11 @@
+import sys
+import tempfile
 import unittest
+from pathlib import Path
 
 from baize.ai.openai_client import AIClientError
-from baize.core.models import RiskLevel, TaskStatus, TaskStep
+from baize.config import BaizeConfig
+from baize.core.models import AgentIntegration, IntegrationKind, RiskLevel, TaskStatus, TaskStep
 from baize.core.orchestrator import Orchestrator
 from baize.runtime.local import LocalRuntime
 
@@ -60,6 +64,103 @@ class OrchestratorTestCase(unittest.TestCase):
         plan = Orchestrator(ai_planner=planner, use_env_ai=False).create_plan("查看当前电脑配置")
 
         self.assertTrue(any(step.agent == "system" for step in plan.steps))
+
+    def test_mcp_integration_routes_to_mcp_agent(self) -> None:
+        integration = AgentIntegration(
+            kind=IntegrationKind.MCP,
+            name="filesystem",
+            description="本地文件 MCP Server",
+            metadata={"keywords": ("filesystem", "mcp")},
+        )
+        plan = Orchestrator(integrations=(integration,), use_env_ai=False).create_plan("通过 filesystem MCP 查找资料")
+
+        self.assertTrue(any(step.agent == "mcp" for step in plan.steps))
+        mcp_step = next(step for step in plan.steps if step.agent == "mcp")
+        self.assertEqual(mcp_step.metadata["integration"], "mcp")
+        self.assertEqual(mcp_step.metadata["name"], "filesystem")
+        self.assertTrue(mcp_step.requires_confirmation)
+
+    def test_skill_integration_routes_to_skill_agent(self) -> None:
+        integration = AgentIntegration(
+            kind=IntegrationKind.SKILL,
+            name="pdf-summary",
+            description="PDF 摘要 Skill",
+            metadata={"keywords": ("pdf-summary", "摘要技能")},
+        )
+        plan = Orchestrator(integrations=(integration,), use_env_ai=False).create_plan("用 pdf-summary Skill 总结报告")
+
+        self.assertTrue(any(step.agent == "skill" for step in plan.steps))
+        skill_step = next(step for step in plan.steps if step.agent == "skill")
+        self.assertEqual(skill_step.metadata["integration"], "skill")
+        self.assertEqual(skill_step.metadata["name"], "pdf-summary")
+        self.assertTrue(skill_step.requires_confirmation)
+
+    def test_runtime_executes_mcp_step_after_confirmation(self) -> None:
+        server_path = Path(__file__).with_name("fake_mcp_server.py")
+        integration = AgentIntegration(
+            kind=IntegrationKind.MCP,
+            name="fake-mcp",
+            description="测试 MCP Server",
+            metadata={"keywords": ("fake-mcp",), "command": sys.executable, "args": (str(server_path),), "tool": "echo"},
+        )
+        plan = Orchestrator(integrations=(integration,), use_env_ai=False).create_plan("调用 fake-mcp")
+        report = LocalRuntime().run(plan, confirmed=True)
+        mcp_step = next(step for step in report.steps if step.agent == "mcp")
+
+        self.assertEqual(mcp_step.status, TaskStatus.COMPLETED)
+        self.assertEqual(mcp_step.result, "called echo")
+
+    def test_runtime_executes_skill_step_after_confirmation(self) -> None:
+        skill_path = Path(__file__).with_name("fake_skill.py")
+        integration = AgentIntegration(
+            kind=IntegrationKind.SKILL,
+            name="fake-skill",
+            description="测试 Skill",
+            metadata={"keywords": ("fake-skill",), "path": str(skill_path)},
+        )
+        plan = Orchestrator(integrations=(integration,), use_env_ai=False).create_plan("调用 fake-skill")
+        report = LocalRuntime().run(plan, confirmed=True)
+        skill_step = next(step for step in report.steps if step.agent == "skill")
+
+        self.assertEqual(skill_step.status, TaskStatus.COMPLETED)
+        self.assertEqual(skill_step.result, f"skill fake-skill handled {skill_step.id}")
+
+    def test_config_loads_mcp_and_skill_integrations(self) -> None:
+        with tempfile.NamedTemporaryFile("w", suffix=".json", encoding="utf-8") as config_file:
+            config_file.write(
+                """
+                {
+                  "mcp": [
+                    {
+                      "name": "fake-mcp",
+                      "description": "测试 MCP",
+                      "command": "python3",
+                      "args": ["tests/fake_mcp_server.py"],
+                      "tool": "echo",
+                      "arguments": {"message": "hello"},
+                      "keywords": ["fake-mcp", "mcp"]
+                    }
+                  ],
+                  "skills": [
+                    {
+                      "name": "fake-skill",
+                      "description": "测试 Skill",
+                      "path": "tests/fake_skill.py",
+                      "keywords": ["fake-skill", "skill"]
+                    }
+                  ]
+                }
+                """
+            )
+            config_file.flush()
+            config = BaizeConfig.load(config_file.name)
+
+        self.assertEqual(len(config.integrations), 2)
+        self.assertEqual(config.integrations[0].kind, IntegrationKind.MCP)
+        self.assertEqual(config.integrations[0].metadata["args"], ("tests/fake_mcp_server.py",))
+        self.assertEqual(config.integrations[0].metadata["arguments"], {"message": "hello"})
+        self.assertEqual(config.integrations[1].kind, IntegrationKind.SKILL)
+        self.assertEqual(config.integrations[1].metadata["path"], "tests/fake_skill.py")
 
 
 if __name__ == "__main__":

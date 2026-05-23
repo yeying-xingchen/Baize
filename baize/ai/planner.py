@@ -12,7 +12,7 @@ class AIPlanner(Protocol):
 
 
 class OpenAIPlanner:
-    allowed_agents = {"file", "system", "application", "search", "general"}
+    allowed_agents = {"file", "system", "application", "search", "general", "mcp", "skill"}
 
     def __init__(self, client: OpenAIChatClient) -> None:
         self.client = client
@@ -39,7 +39,9 @@ class OpenAIPlanner:
                     "你是白泽 Baize 的主控 Agent。"
                     "你的任务是把用户自然语言请求拆解为可执行计划。"
                     "只能返回 JSON 对象，不要返回 Markdown。"
-                    "JSON 格式必须为 {\"steps\":[{\"agent\":\"file|system|application|search|general\",\"action\":\"中文动作描述\",\"risk\":\"low|sensitive|dangerous\"}]}。"
+                    "JSON 格式必须为 {\"steps\":[{\"agent\":\"file|system|application|search|mcp|skill|general\",\"action\":\"中文动作描述\",\"risk\":\"low|sensitive|dangerous\"}]}。"
+                    "需要连接外部 MCP Server、MCP 工具或上下文协议时使用 mcp Agent。"
+                    "需要加载或执行可复用 Skill、技能包、插件能力时使用 skill Agent。"
                     "涉及删除、覆盖、格式化、系统设置修改、账号密码、隐私目录、支付资金的任务必须标记为 sensitive 或 dangerous。"
                     "当前阶段只规划，不真实执行系统、文件或应用操作。"
                 ),

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from baize.agents.base import Agent
+from baize.agents.base import Agent, IntegrationAgent
 from baize.agents.specialized import (
     ApplicationAgent,
     FileAgent,
@@ -10,7 +10,7 @@ from baize.agents.specialized import (
 )
 from baize.ai.openai_client import AIClientError
 from baize.ai.planner import AIPlanner, OpenAIPlanner
-from baize.core.models import ExecutionPlan, UserRequest
+from baize.core.models import AgentIntegration, ExecutionPlan, UserRequest
 from baize.security.policy import SafetyPolicy
 
 
@@ -18,16 +18,19 @@ class Orchestrator:
     def __init__(
         self,
         agents: tuple[Agent, ...] | None = None,
+        integrations: tuple[AgentIntegration, ...] | None = None,
         safety_policy: SafetyPolicy | None = None,
         ai_planner: AIPlanner | None = None,
         use_env_ai: bool = True,
     ) -> None:
-        self.agents = agents or (
+        base_agents = agents or (
             FileAgent(),
             SystemAgent(),
             ApplicationAgent(),
             SearchAgent(),
         )
+        integration_agents = tuple(IntegrationAgent(integration) for integration in integrations or ())
+        self.agents = (*base_agents, *integration_agents)
         self.fallback_agent = GeneralAgent()
         self.safety_policy = safety_policy or SafetyPolicy()
         self.ai_planner = ai_planner if ai_planner is not None else OpenAIPlanner.from_env() if use_env_ai else None

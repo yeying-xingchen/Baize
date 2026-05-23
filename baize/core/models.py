@@ -5,6 +5,19 @@ from enum import Enum
 from typing import Any
 
 
+class IntegrationKind(str, Enum):
+    MCP = "mcp"
+    SKILL = "skill"
+
+
+@dataclass(frozen=True)
+class AgentIntegration:
+    kind: IntegrationKind
+    name: str
+    description: str
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
 class RiskLevel(str, Enum):
     LOW = "low"
     SENSITIVE = "sensitive"
